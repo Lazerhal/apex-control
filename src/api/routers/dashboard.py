@@ -17,14 +17,16 @@ async def get_summary(db: AsyncSession = Depends(get_db)):
     new_recs = await db.execute(select(func.count(Recommendation.id)).where(Recommendation.status == "new"))
     total_cost = await db.execute(select(func.sum(Project.monthly_cost_usd)).where(Project.deleted_at.is_(None)))
     total_revenue = await db.execute(select(func.sum(Project.monthly_revenue_usd)).where(Project.deleted_at.is_(None)))
+    cost = float(total_cost.scalar() or 0)
+    revenue = float(total_revenue.scalar() or 0)
     return {
         "projects": {"total": total_proj.scalar() or 0, "by_stage": projects_by_stage},
         "tasks": {"open": open_tasks.scalar() or 0, "critical": critical_tasks.scalar() or 0},
         "ideas": {"new": new_ideas.scalar() or 0},
         "recommendations": {"new": new_recs.scalar() or 0},
         "financials": {
-            "monthly_cost_usd": float(total_cost.scalar() or 0),
-            "monthly_revenue_usd": float(total_revenue.scalar() or 0),
-            "monthly_profit_usd": float((total_revenue.scalar() or 0) - (total_cost.scalar() or 0)),
+            "monthly_cost_usd": cost,
+            "monthly_revenue_usd": revenue,
+            "monthly_profit_usd": revenue - cost,
         }
     }
