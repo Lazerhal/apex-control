@@ -147,7 +147,7 @@ class Task(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     project = relationship("Project", back_populates="tasks")
-    subtasks = relationship("Task", backref="parent")
+    # subtasks relationship defined in migration v2 to avoid self-referential complexity
 
 
 class Note(Base):
