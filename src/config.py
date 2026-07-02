@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     github_token: str = ""
     github_username: str = "Lazerhal"
+    apex_dashboard_username: str = "hunter"
+    apex_dashboard_password_hash: str = ""
+    jwt_secret_key: str = ""
+    jwt_algorithm: str = "HS256"
+    jwt_expire_hours: int = 24
     environment: str = "development"
     debug: bool = True
 

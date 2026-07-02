@@ -1,8 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from src.config import get_settings
 from src.api.routers import projects, tasks, notes, handoffs, ideas, dashboard
+from src.api.routers import auth as auth_router
+from src.auth import get_current_user
 
 settings = get_settings()
 
@@ -29,12 +31,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(projects.router)
-app.include_router(tasks.router)
-app.include_router(notes.router)
-app.include_router(handoffs.router)
-app.include_router(ideas.router)
-app.include_router(dashboard.router)
+# Public routes
+app.include_router(auth_router.router)
+
+# Protected routes — require valid session token
+app.include_router(projects.router, dependencies=[Depends(get_current_user)])
+app.include_router(tasks.router, dependencies=[Depends(get_current_user)])
+app.include_router(notes.router, dependencies=[Depends(get_current_user)])
+app.include_router(handoffs.router, dependencies=[Depends(get_current_user)])
+app.include_router(ideas.router, dependencies=[Depends(get_current_user)])
+app.include_router(dashboard.router, dependencies=[Depends(get_current_user)])
 
 @app.get("/health")
 async def health():
