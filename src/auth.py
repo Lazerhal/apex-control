@@ -65,3 +65,19 @@ async def get_optional_user(
         return await get_current_user(request, credentials)
     except HTTPException:
         return None
+
+
+async def get_current_user_or_bot(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> dict:
+    """Accepts either a valid JWT token or the bot auth header."""
+    # Check for bot auth header first
+    bot_auth = request.headers.get("X-Bot-Auth")
+    if bot_auth:
+        from src.config import get_settings
+        s = get_settings()
+        if bot_auth == s.telegram_bot_token:
+            return {"sub": "apex-telegram-bot", "type": "bot"}
+    # Fall through to normal JWT auth
+    return await get_current_user(request, credentials)

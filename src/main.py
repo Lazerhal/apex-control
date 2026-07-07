@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from src.config import get_settings
 from src.api.routers import projects, tasks, notes, handoffs, ideas, dashboard
 from src.api.routers import auth as auth_router
-from src.auth import get_current_user
+from src.auth import get_current_user, get_current_user_or_bot
 
 settings = get_settings()
 
@@ -35,12 +35,12 @@ app.add_middleware(
 app.include_router(auth_router.router)
 
 # Protected routes — require valid session token
-app.include_router(projects.router, dependencies=[Depends(get_current_user)])
-app.include_router(tasks.router, dependencies=[Depends(get_current_user)])
-app.include_router(notes.router, dependencies=[Depends(get_current_user)])
-app.include_router(handoffs.router, dependencies=[Depends(get_current_user)])
-app.include_router(ideas.router, dependencies=[Depends(get_current_user)])
-app.include_router(dashboard.router, dependencies=[Depends(get_current_user)])
+app.include_router(projects.router, dependencies=[Depends(get_current_user_or_bot)])
+app.include_router(tasks.router, dependencies=[Depends(get_current_user_or_bot)])
+app.include_router(notes.router, dependencies=[Depends(get_current_user_or_bot)])
+app.include_router(handoffs.router, dependencies=[Depends(get_current_user_or_bot)])
+app.include_router(ideas.router, dependencies=[Depends(get_current_user_or_bot)])
+app.include_router(dashboard.router, dependencies=[Depends(get_current_user_or_bot)])
 
 @app.get("/health")
 async def health():
