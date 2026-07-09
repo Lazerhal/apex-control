@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { api, type Project, type DashboardSummary } from '@/lib/api';
 
 const STAGE_COLORS: Record<string, string> = {
@@ -30,10 +31,11 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
   );
 }
 
-function ProjectCard({ project }: { project: Project }) {
+function ProjectCard({ project, onClick }: { project: Project; onClick: () => void }) {
   const stageColor = STAGE_COLORS[project.stage] || '#6B7280';
   return (
     <div
+      onClick={onClick}
       style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: '20px', cursor: 'pointer' }}
       onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--border-bright)')}
       onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}
@@ -77,6 +79,7 @@ function ProjectCard({ project }: { project: Project }) {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -114,7 +117,7 @@ export default function DashboardPage() {
           Active Projects
         </h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '14px' }}>
-          {projects.map(p => <ProjectCard key={p.id} project={p} />)}
+          {projects.map(p => <ProjectCard key={p.id} project={p} onClick={() => router.push(`/dashboard/projects/${p.id}`)} />)}
         </div>
       </div>
     </div>

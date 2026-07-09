@@ -1,6 +1,6 @@
 const API_BASE = '/api/proxy';
 
-async function apiFetch(path: string, options: RequestInit = {}) {
+export async function apiFetch(path: string, options: RequestInit = {}) {
   const token = typeof window !== 'undefined' ? localStorage.getItem('apex_token') : null;
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
