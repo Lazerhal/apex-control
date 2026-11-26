@@ -4,6 +4,7 @@ from sqlalchemy import select
 from src.db.session import get_db
 from src.db.models import Task, Project
 from src.api.schemas import TaskCreate, TaskResponse, MessageResponse
+from src.events import emit
 from datetime import datetime
 import uuid
 
@@ -30,6 +31,8 @@ async def create_task(project_id: uuid.UUID, data: TaskCreate, db: AsyncSession 
     db.add(task)
     await db.commit()
     await db.refresh(task)
+    await emit("task.created", "api", project_id=project_id,
+               payload={"task_id": str(task.id), "apex_task_id": task.apex_task_id, "title": task.title})
     return task
 
 @router.patch("/{task_id}", response_model=TaskResponse)
@@ -45,4 +48,8 @@ async def update_task(project_id: uuid.UUID, task_id: uuid.UUID, data: dict, db:
         task.completed_at = datetime.utcnow()
     await db.commit()
     await db.refresh(task)
+    await emit("task.updated", "api", project_id=project_id,
+               payload={"task_id": str(task.id), "apex_task_id": task.apex_task_id,
+                        "fields": sorted(f for f in data if hasattr(task, f)),
+                        "task_status": task.status})
     return task

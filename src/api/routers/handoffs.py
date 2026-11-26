@@ -4,6 +4,7 @@ from sqlalchemy import select
 from src.db.session import get_db
 from src.db.models import Handoff, Project, DocSyncState
 from src.api.schemas import HandoffCreate, HandoffResponse
+from src.events import emit
 from datetime import datetime, date
 import uuid
 
@@ -31,5 +32,7 @@ async def create_handoff(project_id: uuid.UUID, data: HandoffCreate, db: AsyncSe
         sync_state.sync_status = "db_ahead"
     await db.commit()
     await db.refresh(handoff)
+    await emit("handoff.created", "api", project_id=project_id,
+               payload={"handoff_id": str(handoff.id), "session_tool": handoff.session_tool})
     handoff.session_date = str(handoff.session_date)
     return handoff
