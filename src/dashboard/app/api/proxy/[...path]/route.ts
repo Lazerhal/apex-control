@@ -27,12 +27,49 @@ async function handler(request: NextRequest, { params }: { params: Promise<{ pat
     init.body = await request.text();
   }
 
-  const res = await fetch(url, init);
-  const data = await res.text();
+  // A stream request must stop calling the API as soon as the browser goes away.
+  // Other requests carry no signal and run to completion.
+  const isStreamRequest =
+    request.method === 'GET' &&
+    (pathname === '/api/events/stream' ||
+      (request.headers.get('accept')?.includes('text/event-stream') ?? false));
+  if (isStreamRequest) {
+    // Registered before fetch so it also covers the wait for response headers
+    const upstream = new AbortController();
+    const abort = () => upstream.abort();
+    if (request.signal.aborted) abort();
+    else request.signal.addEventListener('abort', abort, { once: true });
+    init.signal = upstream.signal;
+  }
+
+  let res: Response;
+  let isEventStream: boolean;
+  let data: ReadableStream<Uint8Array> | string | null;
+  try {
+    res = await fetch(url, init);
+    // Server-Sent Events never end, so pass the body through instead of buffering it
+    isEventStream = res.headers.get('content-type')?.startsWith('text/event-stream') ?? false;
+    data = isEventStream ? res.body : await res.text();
+  } catch (err) {
+    // Only stream requests carry a signal: the browser left, so there is nobody to respond to
+    if (init.signal?.aborted && (err as Error).name === 'AbortError') {
+      return new NextResponse(null, { status: 499 });
+    }
+    throw err;
+  }
+
+  const responseHeaders: Record<string, string> = isEventStream
+    ? {
+        'Content-Type': 'text/event-stream',
+        // no-transform keeps Next.js compression from buffering the stream
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no',
+      }
+    : { 'Content-Type': 'application/json' };
 
   const response = new NextResponse(data, {
     status: res.status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: responseHeaders,
   });
 
   // Forward set-cookie header
