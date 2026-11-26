@@ -44,14 +44,6 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import httpx
     try:
         async with httpx.AsyncClient() as client:
-            # Login to get token
-            login = await client.post(
-                "http://localhost:8001/auth/login",
-                json={"username": settings.apex_dashboard_username,
-                      "password": settings.apex_dashboard_password_hash},
-                timeout=10
-            )
-            # Use internal bot auth instead
             summary_res = await client.get(
                 "http://localhost:8001/api/dashboard/summary",
                 headers={"X-Bot-Auth": settings.telegram_bot_token},
