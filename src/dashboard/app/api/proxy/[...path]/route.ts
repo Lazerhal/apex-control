@@ -27,15 +27,35 @@ async function handler(request: NextRequest, { params }: { params: Promise<{ pat
     init.body = await request.text();
   }
 
-  const upstream = new AbortController();
-  const res = await fetch(url, { ...init, signal: upstream.signal });
-  // Server-Sent Events never end, so pass the body through instead of buffering it
-  const isEventStream = res.headers.get('content-type')?.startsWith('text/event-stream') ?? false;
-  const data = isEventStream ? res.body : await res.text();
-  if (isEventStream) {
-    // Close the upstream connection when the browser goes away, or the API keeps listening
-    if (request.signal.aborted) upstream.abort();
-    request.signal.addEventListener('abort', () => upstream.abort(), { once: true });
+  // A stream request must stop calling the API as soon as the browser goes away.
+  // Other requests carry no signal and run to completion.
+  const isStreamRequest =
+    request.method === 'GET' &&
+    (pathname === '/api/events/stream' ||
+      (request.headers.get('accept')?.includes('text/event-stream') ?? false));
+  if (isStreamRequest) {
+    // Registered before fetch so it also covers the wait for response headers
+    const upstream = new AbortController();
+    const abort = () => upstream.abort();
+    if (request.signal.aborted) abort();
+    else request.signal.addEventListener('abort', abort, { once: true });
+    init.signal = upstream.signal;
+  }
+
+  let res: Response;
+  let isEventStream: boolean;
+  let data: ReadableStream<Uint8Array> | string | null;
+  try {
+    res = await fetch(url, init);
+    // Server-Sent Events never end, so pass the body through instead of buffering it
+    isEventStream = res.headers.get('content-type')?.startsWith('text/event-stream') ?? false;
+    data = isEventStream ? res.body : await res.text();
+  } catch (err) {
+    // Only stream requests carry a signal: the browser left, so there is nobody to respond to
+    if (init.signal?.aborted && (err as Error).name === 'AbortError') {
+      return new NextResponse(null, { status: 499 });
+    }
+    throw err;
   }
 
   const responseHeaders: Record<string, string> = isEventStream

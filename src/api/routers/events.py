@@ -20,19 +20,35 @@ router = APIRouter(prefix="/api/events", tags=["events"])
 NOTIFY_CHANNEL = "apex_events"
 HEARTBEAT_SECONDS = 15
 DB_TIMEOUT_SECONDS = 5
+# Most notifications one stream may have waiting before it is ended
+QUEUE_MAXSIZE = 1000
 LISTEN_DSN = db_url.replace("postgresql+asyncpg://", "postgresql://")
 
 async def _load_event_json(event_id: str) -> str | None:
+    """JSON for one event, or None if it no longer exists. Raises if it cannot be loaded."""
     # Shielded so a client disconnect cannot interrupt a pooled connection mid-query
-    with anyio.move_on_after(DB_TIMEOUT_SECONDS, shield=True):
+    with anyio.fail_after(DB_TIMEOUT_SECONDS, shield=True):
+        async with AsyncSessionLocal() as session:
+            event = await session.get(Event, uuid.UUID(event_id))
+        if event is None:
+            return None
+        return EventResponse.model_validate(event).model_dump_json()
+
+class _Backlog:
+    """Notifications waiting to be sent on one stream. Overflowing it ends the stream."""
+
+    def __init__(self):
+        self.queue: asyncio.Queue = asyncio.Queue(maxsize=QUEUE_MAXSIZE)
+        # Cancelling this stops the response even while it is blocked sending to a slow client
+        self.end_scope = anyio.CancelScope()
+
+    def put(self, event_id: str | None) -> None:
         try:
-            async with AsyncSessionLocal() as session:
-                event = await session.get(Event, uuid.UUID(event_id))
-            if event:
-                return EventResponse.model_validate(event).model_dump_json()
-        except Exception:
-            logger.exception("Could not load event %s for the stream", event_id)
-    return None
+            self.queue.put_nowait(event_id)
+        except asyncio.QueueFull:
+            if not self.end_scope.cancel_called:
+                logger.warning("Ending event stream: %d notifications waiting", self.queue.qsize())
+                self.end_scope.cancel()
 
 async def _sse_messages(queue: asyncio.Queue):
     yield ": connected\n\n"
@@ -44,7 +60,11 @@ async def _sse_messages(queue: asyncio.Queue):
             continue
         if event_id is None:  # listener connection lost: end so the client reconnects
             return
-        data = await _load_event_json(event_id)
+        try:
+            data = await _load_event_json(event_id)
+        except Exception:  # includes the timeout: end rather than silently skip an event
+            logger.exception("Ending event stream: could not load event %s", event_id)
+            return
         if data:
             yield f"id: {event_id}\ndata: {data}\n\n"
 
@@ -62,14 +82,17 @@ async def _close_listener(conn: asyncpg.Connection, callback) -> None:
 class _ListenerStreamingResponse(StreamingResponse):
     """Closes the listener however the response ends, including client disconnect."""
 
-    def __init__(self, content, conn: asyncpg.Connection, callback, **kwargs):
+    def __init__(self, content, conn: asyncpg.Connection, callback,
+                 end_scope: anyio.CancelScope, **kwargs):
         super().__init__(content, **kwargs)
         self.conn = conn
         self.callback = callback
+        self.end_scope = end_scope
 
     async def __call__(self, scope, receive, send) -> None:
         try:
-            await super().__call__(scope, receive, send)
+            with self.end_scope:
+                await super().__call__(scope, receive, send)
         finally:
             await _close_listener(self.conn, self.callback)
 
@@ -91,17 +114,17 @@ async def list_events(
 @router.get("/stream")
 async def stream_events():
     """Server-Sent Events: each new event as JSON. Events missed while disconnected are not replayed."""
-    queue: asyncio.Queue = asyncio.Queue()
+    backlog = _Backlog()
 
     def on_notify(conn, pid, channel, payload):
-        queue.put_nowait(payload)
+        backlog.put(payload)
 
     conn = None
     try:
         # A dedicated connection: LISTEN has to hold it for the life of the stream
         conn = await asyncpg.connect(LISTEN_DSN, timeout=DB_TIMEOUT_SECONDS,
                                      command_timeout=DB_TIMEOUT_SECONDS)
-        conn.add_termination_listener(lambda _: queue.put_nowait(None))
+        conn.add_termination_listener(lambda _: backlog.put(None))
         await conn.add_listener(NOTIFY_CHANNEL, on_notify)
     except Exception:
         logger.exception("Could not start the event stream listener")
@@ -109,7 +132,7 @@ async def stream_events():
             conn.terminate()
         raise HTTPException(status_code=503, detail="Event stream unavailable")
     return _ListenerStreamingResponse(
-        _sse_messages(queue), conn, on_notify,
+        _sse_messages(backlog.queue), conn, on_notify, backlog.end_scope,
         media_type="text/event-stream",
         # no-transform stops proxies (including Next.js compression) from buffering
         headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
