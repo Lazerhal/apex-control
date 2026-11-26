@@ -4,6 +4,7 @@ from sqlalchemy import select
 from src.db.session import get_db
 from src.db.models import Note, Project
 from src.api.schemas import NoteCreate, NoteResponse
+from src.events import emit
 import uuid
 
 router = APIRouter(prefix="/api/projects/{project_id}/notes", tags=["notes"])
@@ -22,4 +23,6 @@ async def create_note(project_id: uuid.UUID, data: NoteCreate, db: AsyncSession 
     db.add(note)
     await db.commit()
     await db.refresh(note)
+    await emit("note.created", "api", project_id=project_id,
+               payload={"note_id": str(note.id), "note_source": note.source})
     return note

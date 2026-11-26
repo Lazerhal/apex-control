@@ -3,7 +3,7 @@ from datetime import datetime, date
 from sqlalchemy import (
     Column, String, Text, Boolean, Integer, Numeric,
     DateTime, Date, ForeignKey, ARRAY, Enum as SAEnum,
-    UniqueConstraint, Index
+    UniqueConstraint, Index, text
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
@@ -493,6 +493,28 @@ class JobsRegistry(Base):
     overnight_safe = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Event(Base):
+    __tablename__ = "events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    kind = Column(String(50), nullable=False)
+    source = Column(String(30), nullable=False)
+    target = Column(String(50))
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="SET NULL"))
+    actor = Column(String(50))
+    status = Column(String(20), nullable=False, default="ok", server_default="ok")
+    latency_ms = Column(Integer)
+    cost_usd = Column(Numeric(10, 6))
+    payload = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+
+    __table_args__ = (
+        Index("idx_events_created_at", "created_at"),
+        Index("idx_events_project_created", "project_id", "created_at"),
+        Index("idx_events_kind", "kind"),
+    )
 
 
 # ── Project Type Extensions ───────────────────────────────────────

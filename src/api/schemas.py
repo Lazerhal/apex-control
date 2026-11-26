@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 import uuid
@@ -123,6 +123,32 @@ class IdeaResponse(BaseModel):
     status: str
     source: str
     created_at: datetime
+    class Config:
+        from_attributes = True
+
+class EventCreate(BaseModel):
+    kind: str = Field(min_length=1, max_length=50)
+    source: str = Field(min_length=1, max_length=30)
+    target: Optional[str] = Field(default=None, max_length=50)
+    project_id: Optional[uuid.UUID] = None
+    actor: Optional[str] = Field(default=None, max_length=50)
+    status: str = Field(default="ok", min_length=1, max_length=20)
+    payload: dict = Field(default_factory=dict)
+    latency_ms: Optional[int] = Field(default=None, ge=0, le=2_147_483_647)
+    cost_usd: Optional[float] = Field(default=None, ge=0, lt=10_000)
+
+class EventResponse(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    kind: str
+    source: str
+    target: Optional[str]
+    project_id: Optional[uuid.UUID]
+    actor: Optional[str]
+    status: str
+    latency_ms: Optional[int]
+    cost_usd: Optional[float]
+    payload: dict
     class Config:
         from_attributes = True
 

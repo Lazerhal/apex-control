@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from src.config import get_settings
-from src.api.routers import projects, tasks, notes, handoffs, ideas, dashboard
+from src.api.routers import projects, tasks, notes, handoffs, ideas, dashboard, events
 from src.api.routers import auth as auth_router
 from src.auth import get_current_user, get_current_user_or_bot
 
@@ -41,6 +41,7 @@ app.include_router(notes.router, dependencies=[Depends(get_current_user_or_bot)]
 app.include_router(handoffs.router, dependencies=[Depends(get_current_user_or_bot)])
 app.include_router(ideas.router, dependencies=[Depends(get_current_user_or_bot)])
 app.include_router(dashboard.router, dependencies=[Depends(get_current_user_or_bot)])
+app.include_router(events.router, dependencies=[Depends(get_current_user_or_bot)])
 
 @app.get("/health")
 async def health():

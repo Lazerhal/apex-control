@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, status, Response, Request
 from pydantic import BaseModel
 from src.auth import verify_password, create_access_token
 from src.config import get_settings
+from src.events import emit
 
 settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -19,6 +20,9 @@ class LoginResponse(BaseModel):
 async def login(data: LoginRequest, response: Response):
     # Validate username
     if data.username != settings.apex_dashboard_username:
+        # The submitted username is not recorded: it could be a mistyped password
+        await emit("auth.login_failure", "api", status="error",
+                   payload={"reason": "unknown_username"})
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials"
@@ -26,6 +30,8 @@ async def login(data: LoginRequest, response: Response):
     
     # Validate password
     if not verify_password(data.password, settings.apex_dashboard_password_hash):
+        await emit("auth.login_failure", "api", actor=settings.apex_dashboard_username[:50],
+                   status="error", payload={"reason": "bad_password"})
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials"
@@ -42,6 +48,8 @@ async def login(data: LoginRequest, response: Response):
         samesite="lax",
         max_age=86400  # 24 hours
     )
+    
+    await emit("auth.login_success", "api", actor=data.username[:50])
     
     return LoginResponse(access_token=token, username=data.username)
 

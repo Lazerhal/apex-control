@@ -4,6 +4,7 @@ from sqlalchemy import select
 from src.db.session import get_db
 from src.db.models import Idea
 from src.api.schemas import IdeaCreate, IdeaResponse
+from src.events import emit
 import uuid
 
 router = APIRouter(prefix="/api/ideas", tags=["ideas"])
@@ -22,6 +23,8 @@ async def create_idea(data: IdeaCreate, db: AsyncSession = Depends(get_db)):
     db.add(idea)
     await db.commit()
     await db.refresh(idea)
+    await emit("idea.created", "api",
+               payload={"idea_id": str(idea.id), "title": idea.title, "idea_source": idea.source})
     return idea
 
 @router.get("/{idea_id}", response_model=IdeaResponse)

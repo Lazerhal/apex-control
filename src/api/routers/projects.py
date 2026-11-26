@@ -4,6 +4,7 @@ from sqlalchemy import select, func
 from src.db.session import get_db
 from src.db.models import Project, DocSyncState
 from src.api.schemas import ProjectCreate, ProjectUpdate, ProjectResponse, MessageResponse
+from src.events import emit
 from datetime import datetime
 import uuid
 
@@ -43,6 +44,8 @@ async def create_project(data: ProjectCreate, db: AsyncSession = Depends(get_db)
     db.add(doc_sync)
     await db.commit()
     await db.refresh(project)
+    await emit("project.created", "api", project_id=project.id,
+               payload={"apex_id": project.apex_id, "name": project.name})
     return project
 
 @router.get("/apex/{apex_id}", response_model=ProjectResponse)
@@ -67,10 +70,13 @@ async def update_project(project_id: uuid.UUID, data: ProjectUpdate, db: AsyncSe
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    for field, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    for field, value in changes.items():
         setattr(project, field, value)
     await db.commit()
     await db.refresh(project)
+    await emit("project.updated", "api", project_id=project.id,
+               payload={"apex_id": project.apex_id, "fields": sorted(changes)})
     return project
 
 @router.delete("/{project_id}", response_model=MessageResponse)
@@ -81,4 +87,6 @@ async def delete_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_d
         raise HTTPException(status_code=404, detail="Project not found")
     project.deleted_at = datetime.utcnow()
     await db.commit()
+    await emit("project.deleted", "api", project_id=project.id,
+               payload={"apex_id": project.apex_id, "name": project.name})
     return {"message": f"Project {project.name} deleted"}
