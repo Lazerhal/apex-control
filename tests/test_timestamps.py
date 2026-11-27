@@ -148,7 +148,9 @@ DST_CASES = {
     "autumn-edited-across-change": ("2026-11-01 04:00", 4, "shifted"),
     # Clocks skip 02:00-03:00, so these two were stored as the same value
     "spring-skipped-hour": ("2026-03-08 02:30", 0, "shifted"),
-    "spring-same-stored-value": ("2026-03-08 03:30", 0, "shifted"),
+    # updated_at matches this one, but it could be the earlier time, edited an hour later
+    "spring-same-stored-value": ("2026-03-08 03:30", 0, "review"),
+    "spring-skipped-then-edited-an-hour-later": ("2026-03-08 02:30", 1, "review"),
     "spring-skipped-then-edited": ("2026-03-08 02:30", 2, "review"),
 }
 
@@ -189,6 +191,21 @@ async def test_rows_near_daylight_saving_changes(client, project, db, central_ti
         fixed = {r["title"]: r["completed_at"] for r in await db.fetch("select * from tasks")}
         for name, (true, _, verdict) in DST_CASES.items():
             assert fixed[name] == (utc(true) if verdict == "shifted" else stored[name]), name
+
+
+@pytest.mark.parametrize("true", ["2026-03-08 02:30", "2026-03-08 03:30"])
+@pytest.mark.parametrize("table,column", [("projects", "deleted_at"),
+                                          ("doc_sync_states", "last_db_write")])
+async def test_skipped_hour_when_updated_at_was_written_with_the_value(
+        client, project, db, central_time, table, column, true):
+    await db.execute(f"update {table} set {column} = $1, updated_at = $2",
+                     datetime.fromisoformat(true), utc(true))
+    results = [await db.fetch(s) for s in statements("check_naive_timestamps.sql")]
+    assert [(r["column_name"], r["verdict"]) for r in results[1]] == [
+        (f"{table}.{column}", "shifted")]
+    for statement in statements("fix_naive_timestamps.sql"):
+        await db.execute(statement)
+    assert await db.fetchval(f"select {column} from {table}") == utc(true)
 
 
 async def test_a_one_hour_leftover_is_not_corrected_again(client, project, db):

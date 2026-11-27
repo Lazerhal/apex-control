@@ -56,7 +56,6 @@ WITH converted AS (
                 ELSE corrected END AS new_value
       FROM candidates
      WHERE (earlier IS NULL AND corrected - reference <= interval '60 seconds')
-        OR abs(extract(epoch FROM corrected - reference)) <= 60
         OR abs(extract(epoch FROM earlier - reference)) <= 60
 )
 UPDATE tasks AS row_to_fix SET completed_at = target.new_value

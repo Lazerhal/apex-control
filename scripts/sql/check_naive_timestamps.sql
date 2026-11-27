@@ -11,7 +11,9 @@
 --   review   cannot be told from the data (for example a task edited after it was completed)
 --
 -- When clocks spring forward, two different times were stored as the same value. Those rows are
--- 'shifted' only if updated_at shows which one it was, and 'review' otherwise.
+-- 'shifted' only if updated_at shows which one it was, and 'review' otherwise. A task can be
+-- edited after it was completed, so for a task updated_at can only show that it was the earlier
+-- one.
 -- A value exactly one hour after updated_at is also 'review': an earlier version of the
 -- correction script could leave that behind, and correcting it again would be wrong.
 --
@@ -49,8 +51,9 @@ WITH written AS (
                   OR abs(extract(epoch FROM difference) - 3600) <= 60 THEN 'review'
                 WHEN earlier IS NULL AND corrected - reference <= interval '60 seconds'
                      THEN 'shifted'
+                WHEN abs(extract(epoch FROM earlier - reference)) <= 60 THEN 'shifted'
                 WHEN abs(extract(epoch FROM corrected - reference)) <= 60
-                  OR abs(extract(epoch FROM earlier - reference)) <= 60 THEN 'shifted'
+                 AND column_name <> 'tasks.completed_at' THEN 'shifted'
                 ELSE 'review' END AS verdict
       FROM candidates
 )
@@ -87,8 +90,9 @@ WITH written AS (
                   OR abs(extract(epoch FROM difference) - 3600) <= 60 THEN 'review'
                 WHEN earlier IS NULL AND corrected - reference <= interval '60 seconds'
                      THEN 'shifted'
+                WHEN abs(extract(epoch FROM earlier - reference)) <= 60 THEN 'shifted'
                 WHEN abs(extract(epoch FROM corrected - reference)) <= 60
-                  OR abs(extract(epoch FROM earlier - reference)) <= 60 THEN 'shifted'
+                 AND column_name <> 'tasks.completed_at' THEN 'shifted'
                 ELSE 'review' END AS verdict
       FROM candidates
 )
