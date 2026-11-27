@@ -7,6 +7,9 @@ services:
       - "3001:3001"
     volumes:
       - kuma-data:/app/data
+    networks:
+      - default
+      - coolify
 
   dozzle:
     image: amir20/dozzle:latest
@@ -43,3 +46,7 @@ volumes:
   kuma-data:
   dozzle-data:
   beszel-data:
+
+networks:
+  coolify:
+    external: true
