@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional
 from datetime import datetime
+import math
 import uuid
 
 class ProjectCreate(BaseModel):
@@ -15,8 +16,8 @@ class ProjectCreate(BaseModel):
     repo_visibility: Optional[str] = "private"
     primary_branch: str = "main"
     local_path: Optional[str] = None
-    monthly_cost_usd: float = 0
-    monthly_revenue_usd: float = 0
+    monthly_cost_usd: float = Field(default=0, allow_inf_nan=False)
+    monthly_revenue_usd: float = Field(default=0, allow_inf_nan=False)
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
@@ -26,9 +27,17 @@ class ProjectUpdate(BaseModel):
     status_note: Optional[str] = None
     live_url: Optional[str] = None
     github_repo: Optional[str] = None
-    monthly_cost_usd: Optional[float] = None
-    monthly_revenue_usd: Optional[float] = None
+    monthly_cost_usd: Optional[float] = Field(default=None, allow_inf_nan=False)
+    monthly_revenue_usd: Optional[float] = Field(default=None, allow_inf_nan=False)
     cost_efficiency_flag: Optional[str] = None
+
+    @field_validator("monthly_cost_usd", "monthly_revenue_usd", "cost_efficiency_flag")
+    @classmethod
+    def not_null(cls, value):
+        # Runs only for fields that were sent: leaving one out is fine, null is not
+        if value is None:
+            raise ValueError("cannot be null")
+        return value
 
 class ProjectResponse(BaseModel):
     id: uuid.UUID
@@ -51,6 +60,22 @@ class ProjectResponse(BaseModel):
     class Config:
         from_attributes = True
 
+    # Rows saved before nulls were rejected must not break reading projects
+    @field_validator("monthly_cost_usd", "monthly_revenue_usd", mode="before")
+    @classmethod
+    def missing_amount_is_zero(cls, value):
+        return 0 if value is None or not math.isfinite(value) else value
+
+    @field_validator("cost_efficiency_flag", mode="before")
+    @classmethod
+    def missing_flag_is_healthy(cls, value):
+        return "healthy" if value is None else value
+
+    @field_validator("completeness_score", mode="before")
+    @classmethod
+    def missing_score_is_zero(cls, value):
+        return 0 if value is None else value
+
 class TaskCreate(BaseModel):
     title: str
     description: Optional[str] = None
@@ -58,6 +83,20 @@ class TaskCreate(BaseModel):
     type: str = "feature"
     estimated_effort: Optional[str] = None
     assigned_to: Optional[str] = None
+
+class TaskUpdate(BaseModel):
+    """The only task fields a client may change. Anything else is rejected."""
+    model_config = ConfigDict(extra="forbid")
+
+    # A None default with a non-Optional type: may be left out, but not set to null
+    title: str = Field(default=None, max_length=300)
+    description: Optional[str] = None
+    priority: str = Field(default=None, max_length=20)
+    type: str = Field(default=None, max_length=30)
+    estimated_effort: Optional[str] = Field(default=None, max_length=20)
+    assigned_to: Optional[str] = Field(default=None, max_length=100)
+    blocked_by: Optional[list[str]] = None
+    status: str = Field(default=None, max_length=20)
 
 class TaskResponse(BaseModel):
     id: uuid.UUID

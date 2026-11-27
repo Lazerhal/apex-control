@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta
+import hmac
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -16,7 +17,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(hours=settings.jwt_expire_hours))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(hours=settings.jwt_expire_hours))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
@@ -77,7 +78,9 @@ async def get_current_user_or_bot(
     if bot_auth:
         from src.config import get_settings
         s = get_settings()
-        if bot_auth == s.telegram_bot_token:
+        # compare_digest takes the same time wherever the keys differ
+        if s.apex_internal_key and hmac.compare_digest(
+                bot_auth.encode(), s.apex_internal_key.encode()):
             return {"sub": "apex-telegram-bot", "type": "bot"}
     # Fall through to normal JWT auth
     return await get_current_user(request, credentials)

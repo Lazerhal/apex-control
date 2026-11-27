@@ -3,9 +3,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from src.db.session import get_db
 from src.db.models import Task, Project
-from src.api.schemas import TaskCreate, TaskResponse, MessageResponse
+from src.api.schemas import TaskCreate, TaskUpdate, TaskResponse, MessageResponse
 from src.events import emit
-from datetime import datetime
+from datetime import datetime, timezone
+import re
 import uuid
 
 router = APIRouter(prefix="/api/projects/{project_id}/tasks", tags=["tasks"])
@@ -22,12 +23,19 @@ async def list_tasks(project_id: uuid.UUID, status: str | None = None, priority:
 
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 async def create_task(project_id: uuid.UUID, data: TaskCreate, db: AsyncSession = Depends(get_db)):
-    proj = await db.execute(select(Project).where(Project.id == project_id, Project.deleted_at.is_(None)))
+    # Locking the project row (until commit) makes creates in one project take turns,
+    # so two of them cannot pick the same task number
+    proj = await db.execute(
+        select(Project)
+        .where(Project.id == project_id, Project.deleted_at.is_(None))
+        .with_for_update(key_share=True)
+    )
     if not proj.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Project not found")
-    count_result = await db.execute(select(Task).where(Task.project_id == project_id))
-    count = len(count_result.scalars().all())
-    task = Task(project_id=project_id, apex_task_id=f"T-{str(count+1).zfill(3)}", **data.model_dump())
+    existing = await db.execute(select(Task.apex_task_id).where(Task.project_id == project_id))
+    numbers = [int(m.group(1)) for i in existing.scalars() if (m := re.fullmatch(r"T-(\d+)", i or ""))]
+    task = Task(project_id=project_id, apex_task_id=f"T-{max(numbers, default=0) + 1:03d}",
+                **data.model_dump())
     db.add(task)
     await db.commit()
     await db.refresh(task)
@@ -36,20 +44,20 @@ async def create_task(project_id: uuid.UUID, data: TaskCreate, db: AsyncSession 
     return task
 
 @router.patch("/{task_id}", response_model=TaskResponse)
-async def update_task(project_id: uuid.UUID, task_id: uuid.UUID, data: dict, db: AsyncSession = Depends(get_db)):
+async def update_task(project_id: uuid.UUID, task_id: uuid.UUID, data: TaskUpdate, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Task).where(Task.id == task_id, Task.project_id == project_id))
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    for field, value in data.items():
-        if hasattr(task, field):
-            setattr(task, field, value)
-    if data.get("status") == "done":
-        task.completed_at = datetime.utcnow()
+    changes = data.model_dump(exclude_unset=True)
+    for field, value in changes.items():
+        setattr(task, field, value)
+    if "status" in changes:
+        task.completed_at = datetime.now(timezone.utc) if changes["status"] == "done" else None
     await db.commit()
     await db.refresh(task)
     await emit("task.updated", "api", project_id=project_id,
                payload={"task_id": str(task.id), "apex_task_id": task.apex_task_id,
-                        "fields": sorted(f for f in data if hasattr(task, f)),
+                        "fields": sorted(changes),
                         "task_status": task.status})
     return task

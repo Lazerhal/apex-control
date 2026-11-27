@@ -90,10 +90,13 @@ const within = (promise, ms = 3000) => {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 };
 
-async function untilCalled() {
-  await within((async () => {
-    while (!hits.length) await new Promise((resolve) => setTimeout(resolve, 10));
-  })());
+async function untilCalled(ms = 3000) {
+  // The loop keeps its own deadline, so no timers are left running after a failure
+  const deadline = Date.now() + ms;
+  while (!hits.length) {
+    if (Date.now() > deadline) throw new Error('timed out waiting for the fake API to be called');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 describe('normal requests', () => {

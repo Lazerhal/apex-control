@@ -5,7 +5,7 @@ from src.db.session import get_db
 from src.db.models import Project, DocSyncState
 from src.api.schemas import ProjectCreate, ProjectUpdate, ProjectResponse, MessageResponse
 from src.events import emit
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -20,7 +20,7 @@ def generate_apex_id(project_type: str) -> str:
         "idea": "IDEA",
     }
     code = type_codes.get(project_type, "PROJ")
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     seq = str(uuid.uuid4())[:4].upper()
     return f"APEX-{code}-{now.strftime('%Y%m')}-{seq}"
 
@@ -40,7 +40,7 @@ async def create_project(data: ProjectCreate, db: AsyncSession = Depends(get_db)
     project = Project(apex_id=generate_apex_id(data.type), **data.model_dump())
     db.add(project)
     await db.flush()
-    doc_sync = DocSyncState(project_id=project.id, sync_status="in_sync", last_db_write=datetime.utcnow())
+    doc_sync = DocSyncState(project_id=project.id, sync_status="in_sync", last_db_write=datetime.now(timezone.utc))
     db.add(doc_sync)
     await db.commit()
     await db.refresh(project)
@@ -85,7 +85,7 @@ async def delete_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_d
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    project.deleted_at = datetime.utcnow()
+    project.deleted_at = datetime.now(timezone.utc)
     await db.commit()
     await emit("project.deleted", "api", project_id=project.id,
                payload={"apex_id": project.apex_id, "name": project.name})
