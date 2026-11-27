@@ -5,7 +5,7 @@ from src.db.session import get_db
 from src.db.models import Handoff, Project, DocSyncState
 from src.api.schemas import HandoffCreate, HandoffResponse
 from src.events import emit
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import uuid
 
 router = APIRouter(prefix="/api/projects/{project_id}/handoffs", tags=["handoffs"])
@@ -28,7 +28,7 @@ async def create_handoff(project_id: uuid.UUID, data: HandoffCreate, db: AsyncSe
     sync = await db.execute(select(DocSyncState).where(DocSyncState.project_id == project_id))
     sync_state = sync.scalar_one_or_none()
     if sync_state:
-        sync_state.last_db_write = datetime.utcnow()
+        sync_state.last_db_write = datetime.now(timezone.utc)
         sync_state.sync_status = "db_ahead"
     await db.commit()
     await db.refresh(handoff)

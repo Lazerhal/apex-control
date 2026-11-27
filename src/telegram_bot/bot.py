@@ -46,7 +46,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with httpx.AsyncClient() as client:
             summary_res = await client.get(
                 "http://localhost:8001/api/dashboard/summary",
-                headers={"X-Bot-Auth": settings.telegram_bot_token},
+                headers={"X-Bot-Auth": settings.apex_internal_key},
                 timeout=10
             )
             if summary_res.status_code != 200:
@@ -84,7 +84,7 @@ async def cmd_projects(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with httpx.AsyncClient() as client:
             res = await client.get(
                 "http://localhost:8001/api/projects",
-                headers={"X-Bot-Auth": settings.telegram_bot_token},
+                headers={"X-Bot-Auth": settings.apex_internal_key},
                 timeout=10
             )
             if res.status_code != 200:
@@ -111,7 +111,7 @@ async def cmd_costs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with httpx.AsyncClient() as client:
             res = await client.get(
                 "http://localhost:8001/api/projects",
-                headers={"X-Bot-Auth": settings.telegram_bot_token},
+                headers={"X-Bot-Auth": settings.apex_internal_key},
                 timeout=10
             )
             projects = res.json()
@@ -144,7 +144,7 @@ async def cmd_idea(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with httpx.AsyncClient() as client:
             res = await client.post(
                 "http://localhost:8001/api/ideas",
-                headers={"X-Bot-Auth": settings.telegram_bot_token},
+                headers={"X-Bot-Auth": settings.apex_internal_key},
                 json={"title": title, "raw_description": description, "source": "telegram"},
                 timeout=10
             )
@@ -186,6 +186,8 @@ def build_app() -> Application:
 
 
 def run():
+    if not settings.apex_internal_key:
+        raise SystemExit("APEX_INTERNAL_KEY is not set: the bot cannot call the API")
     logger.info(f"Starting APEX Telegram bot (owner: {OWNER_ID})")
     app = build_app()
     app.run_polling(drop_pending_updates=True)

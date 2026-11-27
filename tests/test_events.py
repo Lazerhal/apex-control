@@ -91,7 +91,7 @@ async def write_everything(client):
     base = f"/api/projects/{project['id']}"
     await send("PATCH", base, {"stage": "live", "goal": "g"})
     task = await send("POST", f"{base}/tasks", {"title": "t"})
-    await send("PATCH", f"{base}/tasks/{task['id']}", {"status": "done", "junk": 1})
+    await send("PATCH", f"{base}/tasks/{task['id']}", {"status": "done"})
     await send("POST", f"{base}/notes", {"content": "secret note text"})
     await send("POST", f"{base}/handoffs", {
         "what_was_done": "a", "what_remains": "b", "next_model_should": "c", "session_tool": "cc"})
@@ -188,3 +188,12 @@ async def test_list_newest_first_with_limits_and_filters(client, project, db):
     by_project = (await client.get(f"/api/events?project_id={project['id']}")).json()
     assert [e["kind"] for e in by_project] == ["special"]
     assert (await client.get(f"/api/events?project_id={NOWHERE}")).json() == []
+
+
+@pytest.mark.parametrize("body", [
+    '{"kind": "a", "source": "bot", "cost_usd": NaN}',
+    '{"source": "bot", "cost_usd": Infinity}',  # the error repeats the whole body
+])
+async def test_non_finite_numbers_get_a_422(client, body):
+    res = await client.post("/api/events", content=body, headers={"Content-Type": "application/json"})
+    assert res.status_code == 422, res.text

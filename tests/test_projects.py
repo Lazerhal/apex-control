@@ -1,5 +1,7 @@
 import uuid
 
+import pytest
+
 NOWHERE = "00000000-0000-0000-0000-000000000000"
 
 
@@ -52,3 +54,43 @@ async def test_unknown_project(client):
     assert (await client.delete(f"/api/projects/{NOWHERE}")).status_code == 404
     assert (await client.get("/api/projects/apex/NOPE")).status_code == 404
     assert (await client.get("/api/projects/not-a-uuid")).status_code == 422
+
+
+AMOUNTS = ["monthly_cost_usd", "monthly_revenue_usd"]
+
+
+@pytest.mark.parametrize("field", AMOUNTS + ["cost_efficiency_flag"])
+async def test_null_is_rejected_and_projects_stay_readable(client, project, field):
+    res = await client.patch(f"/api/projects/{project['id']}", json={field: None})
+    assert res.status_code == 422 and "cannot be null" in res.text
+    assert (await client.get("/api/projects")).status_code == 200
+
+
+@pytest.mark.parametrize("field", AMOUNTS)
+@pytest.mark.parametrize("value", ["NaN", '"NaN"', "Infinity", "-Infinity"])
+async def test_non_finite_amounts_are_rejected(client, project, field, value):
+    headers = {"Content-Type": "application/json"}
+    patched = await client.patch(f"/api/projects/{project['id']}", headers=headers,
+                                 content=f'{{"{field}": {value}}}')
+    created = await client.post("/api/projects", headers=headers,
+                                content=f'{{"name": "n", "type": "saas", "{field}": {value}}}')
+    assert (patched.status_code, created.status_code) == (422, 422)
+    assert (await client.get("/api/projects")).status_code == 200
+    assert (await client.get("/api/dashboard/summary")).status_code == 200
+
+
+@pytest.mark.parametrize("assignment", [
+    "monthly_cost_usd = null", "monthly_revenue_usd = null", "monthly_cost_usd = 'NaN'",
+    "cost_efficiency_flag = null", "completeness_score = null"])
+async def test_rows_already_holding_bad_values_can_be_read(client, project, db, assignment):
+    await db.execute(f"update projects set {assignment}")
+    listed = await client.get("/api/projects")
+    assert listed.status_code == 200, listed.text
+    assert (await client.get(f"/api/projects/{project['id']}")).status_code == 200
+
+
+async def test_omitted_amounts_are_left_alone(client, project):
+    url = f"/api/projects/{project['id']}"
+    await client.patch(url, json={"monthly_cost_usd": 7})
+    res = await client.patch(url, json={"goal": "g"})
+    assert res.status_code == 200 and res.json()["monthly_cost_usd"] == 7

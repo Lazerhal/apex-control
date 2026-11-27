@@ -3,7 +3,7 @@ from datetime import timedelta
 import pytest
 from jose import jwt
 
-from tests.conftest import BOT_TOKEN, PASSWORD, USERNAME
+from tests.conftest import INTERNAL_KEY, PASSWORD, TELEGRAM_TOKEN, USERNAME
 
 
 async def test_login_ok(anon):
@@ -68,9 +68,35 @@ async def test_bad_tokens_rejected(anon, bad):
 
 
 async def test_bot_header(anon):
-    assert (await anon.get("/api/projects", headers={"X-Bot-Auth": BOT_TOKEN})).status_code == 200
-    for wrong in ("wrong", ""):
-        assert (await anon.get("/api/projects", headers={"X-Bot-Auth": wrong})).status_code == 401
+    assert (await anon.get("/api/projects", headers={"X-Bot-Auth": INTERNAL_KEY})).status_code == 200
+    for wrong in ("wrong", "", INTERNAL_KEY[:-1], INTERNAL_KEY + "x", b"\xff\xfe"):
+        res = await anon.get("/api/projects", headers={"X-Bot-Auth": wrong})
+        assert res.status_code == 401, wrong
+
+
+async def test_telegram_token_is_no_longer_a_credential(anon):
+    res = await anon.get("/api/projects", headers={"X-Bot-Auth": TELEGRAM_TOKEN})
+    assert res.status_code == 401
+
+
+async def test_bot_key_is_compared_in_constant_time(anon, monkeypatch):
+    import hmac
+    seen, real = [], hmac.compare_digest
+
+    def spy(a, b):
+        seen.append((a, b))
+        return real(a, b)
+
+    monkeypatch.setattr(hmac, "compare_digest", spy)
+    await anon.get("/api/projects", headers={"X-Bot-Auth": "guess"})
+    assert (b"guess", INTERNAL_KEY.encode()) in seen
+
+
+@pytest.mark.parametrize("sent", ["", "anything", TELEGRAM_TOKEN])
+async def test_no_internal_key_means_no_bot_access(anon, monkeypatch, sent):
+    from src.auth import settings
+    monkeypatch.setattr(settings, "apex_internal_key", "")
+    assert (await anon.get("/api/projects", headers={"X-Bot-Auth": sent})).status_code == 401
 
 
 async def test_health_is_public(anon):

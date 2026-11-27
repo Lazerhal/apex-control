@@ -18,7 +18,10 @@ import pytest
 from tests.db_guard import UnsafeDatabaseError, check_database_is_empty, check_database_url
 
 ROOT = Path(__file__).resolve().parent.parent
-USERNAME, PASSWORD, BOT_TOKEN = "tester", "correct-test-password", "test-bot-token"
+USERNAME, PASSWORD = "tester", "correct-test-password"
+JWT_SECRET = "test-jwt-secret-0123456789-abcdefghij"
+INTERNAL_KEY = "test-internal-key-0123456789-abcdefgh"
+TELEGRAM_TOKEN = "test-telegram-token-0123456789-abcdefgh"
 
 
 def _free_port() -> int:
@@ -41,7 +44,7 @@ EXTERNAL_URL = os.environ.get("TEST_DATABASE_URL")
 CONTAINER_PORT = None if EXTERNAL_URL else _free_port()
 DATABASE_URL = check_database_url(
     EXTERNAL_URL or f"postgresql://postgres:test@127.0.0.1:{CONTAINER_PORT}/apex_test"
-)
+).replace("postgresql+asyncpg://", "postgresql://", 1)  # psycopg2 and asyncpg need this form
 
 from passlib.context import CryptContext  # noqa: E402
 from src.config import Settings  # noqa: E402
@@ -56,10 +59,11 @@ for _key in list(os.environ):
 os.environ.update(
     DATABASE_URL=DATABASE_URL,
     APEX_SESSION_SECRET="test-session-secret",
-    JWT_SECRET_KEY="test-jwt-secret",
+    JWT_SECRET_KEY=JWT_SECRET,
+    APEX_INTERNAL_KEY=INTERNAL_KEY,
     APEX_DASHBOARD_USERNAME=USERNAME,
     APEX_DASHBOARD_PASSWORD_HASH=CryptContext(schemes=["bcrypt"]).hash(PASSWORD),
-    TELEGRAM_BOT_TOKEN=BOT_TOKEN,
+    TELEGRAM_BOT_TOKEN=TELEGRAM_TOKEN,
     TELEGRAM_OWNER_CHAT_ID="1",
     DEBUG="false",
     ENVIRONMENT="test",

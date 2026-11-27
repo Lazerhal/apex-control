@@ -13,7 +13,7 @@ import httpx
 import pytest
 
 import src.api.routers.events as stream_module
-from tests.conftest import BOT_TOKEN, ROOT
+from tests.conftest import INTERNAL_KEY, ROOT
 
 INSERT = """insert into events (id, kind, source, payload)
             select gen_random_uuid(), $1, 'forge', jsonb_build_object('pad', repeat('x', $3))
@@ -97,7 +97,7 @@ def auth(token):
 async def test_auth_and_headers(server, token, db, how):
     headers = {"bearer": {"Authorization": f"Bearer {token}"},
                "cookie": {"Cookie": f"apex_token={token}"},
-               "bot": {"X-Bot-Auth": BOT_TOKEN}}[how]
+               "bot": {"X-Bot-Auth": INTERNAL_KEY}}[how]
     async with Stream(server, headers) as stream:
         assert stream.response.status_code == 200
         assert stream.response.headers["content-type"].startswith("text/event-stream")
@@ -164,7 +164,8 @@ async def test_database_unavailable_is_503(server, auth, monkeypatch):
 async def test_lost_listener_connection_ends_stream(server, auth, db):
     async with Stream(server, auth) as stream:
         await db.execute("""select pg_terminate_backend(pid) from pg_stat_activity
-                            where pid <> pg_backend_pid() and query ilike '%LISTEN%apex_events%'""")
+                            where datname = current_database() and pid <> pg_backend_pid()
+                              and query ilike '%LISTEN%apex_events%'""")
         assert await stream.ended(5) == "clean"
 
 

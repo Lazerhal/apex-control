@@ -21,7 +21,8 @@ echo "== API tests"
 echo "== Dashboard tests"
 (
   cd src/dashboard
-  if [ ! -d node_modules ]; then npm ci; fi
+  # set -e does not apply inside a subshell followed by ||, so stop explicitly
+  if [ ! -d node_modules ]; then npm ci || exit 1; fi
   npm test
 ) || status=1
 

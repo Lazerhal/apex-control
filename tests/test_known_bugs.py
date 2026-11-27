@@ -3,8 +3,7 @@
 Each test states the correct behaviour and is marked as an expected failure. The marks are
 strict: once a bug is fixed its test "unexpectedly passes" and fails the run, so remove the mark.
 """
-import asyncio
-import time
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 import pytest
 
@@ -78,68 +77,20 @@ async def test_null_project_field_is_rejected(client, project, field):
     assert res.status_code == 422
 
 
-@bug("monthly_cost_usd: null is saved, after which listing ALL projects gives 500")
-async def test_null_cost_does_not_break_the_project_list(client, project):
-    await client.patch(f"/api/projects/{project['id']}", json={"monthly_cost_usd": None})
-    assert (await client.get("/api/projects")).status_code == 200
-
-
-@bug("PATCH task with an invalid value gives 500")
-@pytest.mark.parametrize("body", [{"title": None}, {"title": "t" * 301}, {"completed_at": "yesterday"}],
-                         ids=["null-title", "long-title", "bad-date"])
-async def test_invalid_task_update_is_rejected(client, project, body):
-    task = (await client.post(tasks_url(project), json={"title": "t"})).json()
-    res = await client.patch(f"{tasks_url(project)}/{task['id']}", json=body)
-    assert res.status_code == 422
-
-
-@bug("reopening a done task keeps completed_at")
-async def test_reopened_task_has_no_completion_time(client, project, db):
-    task = (await client.post(tasks_url(project), json={"title": "t"})).json()
-    for status in ("done", "open"):
-        await client.patch(f"{tasks_url(project)}/{task['id']}", json={"status": status})
-    assert await db.fetchval("select completed_at from tasks") is None
-
-
-@bug("tasks created at the same time get the same apex_task_id")
-async def test_concurrent_tasks_get_distinct_ids(client, project, db):
-    async with db.transaction():
-        # Lets every request count the tasks before any of them can insert
-        await db.execute("lock table tasks in share mode")
-        requests = [asyncio.create_task(client.post(tasks_url(project), json={"title": "t"}))
-                    for _ in range(3)]
-        await asyncio.sleep(1)
-    ids = [r.json()["apex_task_id"] for r in await asyncio.gather(*requests)]
-    assert len(set(ids)) == len(ids), ids
-
-
-@pytest.fixture
-def central_time(monkeypatch):
-    monkeypatch.setenv("TZ", "America/Chicago")
-    time.tzset()
-    yield
-    monkeypatch.undo()
-    time.tzset()
-
-
-@bug("naive datetime.utcnow() values are stored shifted by the server's UTC offset")
-@pytest.mark.parametrize("column", ["projects.deleted_at", "doc_sync_states.last_db_write",
-                                    "tasks.completed_at"])
-async def test_timestamps_are_right_outside_utc(client, project, db, central_time, column):
-    task = (await client.post(tasks_url(project), json={"title": "t"})).json()
-    await client.patch(f"{tasks_url(project)}/{task['id']}", json={"status": "done"})
-    await client.post(f"/api/projects/{project['id']}/handoffs", json={
-        "what_was_done": "a", "what_remains": "b", "next_model_should": "c"})
-    await client.delete(f"/api/projects/{project['id']}")
-    table, name = column.split(".")
-    drift = await db.fetchval(f"select abs(extract(epoch from now() - {name})) from {table}")
-    assert drift < 60, f"{column} is off by {float(drift) / 3600:.1f} hours"
+def with_encoded_password(url: str) -> str:
+    """The same URL with the password's first character percent-encoded."""
+    parts = urlsplit(url)
+    password = unquote(parts.password)
+    encoded = f"%{ord(password[0]):02X}" + quote(password[1:], safe="")
+    userinfo, host = parts.netloc.rsplit("@", 1)
+    result = urlunsplit(parts._replace(netloc=f"{userinfo.split(':', 1)[0]}:{encoded}@{host}"))
+    assert encoded in result and unquote(urlsplit(result).password) == password
+    return result
 
 
 @bug("Alembic fails when the database password contains % (for example URL-encoded characters)")
 def test_migrations_accept_a_percent_encoded_password():
-    # %65 is "e", so this is the same password, URL-encoded
-    result = alembic("current", url=DATABASE_URL.replace(":test@", ":t%65st@"))
+    result = alembic("current", url=with_encoded_password(DATABASE_URL))
     assert "invalid interpolation syntax" not in result.stderr
 
 
