@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from src.db.session import get_db
 from src.db.models import Project, DocSyncState
-from src.api.schemas import ProjectCreate, ProjectUpdate, ProjectResponse, MessageResponse
+from src.api.schemas import ProjectCreate, ProjectUpdate, ProjectResponse, MessageResponse, SafeText
 from src.events import emit
 from datetime import datetime, timezone
 import uuid
@@ -25,7 +25,7 @@ def generate_apex_id(project_type: str) -> str:
     return f"APEX-{code}-{now.strftime('%Y%m')}-{seq}"
 
 @router.get("", response_model=list[ProjectResponse])
-async def list_projects(stage: str | None = None, type: str | None = None, db: AsyncSession = Depends(get_db)):
+async def list_projects(stage: SafeText | None = None, type: SafeText | None = None, db: AsyncSession = Depends(get_db)):
     query = select(Project).where(Project.deleted_at.is_(None))
     if stage:
         query = query.where(Project.stage == stage)
@@ -49,7 +49,7 @@ async def create_project(data: ProjectCreate, db: AsyncSession = Depends(get_db)
     return project
 
 @router.get("/apex/{apex_id}", response_model=ProjectResponse)
-async def get_project_by_apex_id(apex_id: str, db: AsyncSession = Depends(get_db)):
+async def get_project_by_apex_id(apex_id: SafeText, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Project).where(Project.apex_id == apex_id, Project.deleted_at.is_(None)))
     project = result.scalar_one_or_none()
     if not project:

@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from src.db.session import get_db, db_url, AsyncSessionLocal
 from src.db.models import Event, Project
-from src.api.schemas import EventCreate, EventResponse
+from src.api.schemas import EventCreate, EventResponse, SafeText
 from src.events import emit
 import anyio
 import asyncio
@@ -99,7 +99,7 @@ class _ListenerStreamingResponse(StreamingResponse):
 @router.get("", response_model=list[EventResponse])
 async def list_events(
     limit: int = Query(50, ge=1, le=500),
-    kind: str | None = None,
+    kind: SafeText | None = None,
     project_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
 ):

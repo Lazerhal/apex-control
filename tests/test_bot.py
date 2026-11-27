@@ -1,3 +1,4 @@
+import re
 from types import SimpleNamespace
 
 import httpx
@@ -63,3 +64,18 @@ def test_bot_refuses_to_run_without_the_internal_key(monkeypatch):
     monkeypatch.setattr(bot, "build_app", lambda: pytest.fail("the bot started"))
     with pytest.raises(SystemExit, match="APEX_INTERNAL_KEY"):
         bot.run()
+
+
+async def test_every_command_in_the_bot_help_exists():
+    from src.telegram_bot import bot
+    replies = []
+
+    async def reply(text):
+        replies.append(text)
+
+    await bot.cmd_start(SimpleNamespace(effective_user=SimpleNamespace(id=1),
+                                        message=SimpleNamespace(reply_text=reply)), None)
+    advertised = set(re.findall(r"^/(\w+)", replies[0], re.MULTILINE))
+    handled = {c for h in bot.build_app().handlers[0] for c in getattr(h, "commands", ())}
+    assert not advertised - handled, sorted(advertised - handled)
+    assert advertised

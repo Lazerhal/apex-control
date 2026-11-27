@@ -31,8 +31,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Commands:\n"
         "/status — portfolio summary\n"
         "/projects — list projects\n"
-        "/note <project> <text> — add a note\n"
-        "/task <project> <text> — add a task\n"
         "/idea <title> | <description> — log an idea\n"
         "/costs — cost summary\n"
         "/help — show this message"

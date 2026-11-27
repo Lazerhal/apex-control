@@ -1,22 +1,5 @@
-# Everything needed to run the API tests. The repo has no requirements.txt, so the
-# application's own dependencies are listed here too, at the versions apex-control runs.
-alembic==1.18.5
-asyncpg==0.31.0
-bcrypt==4.0.1
-fastapi==0.138.2
-passlib==1.7.4
-psycopg2-binary==2.9.12
-pydantic==2.13.4
-pydantic-settings==2.14.2
-python-dotenv==1.2.2
-python-jose[cryptography]==3.5.0
-python-telegram-bot==22.8
-SQLAlchemy[asyncio]==2.0.51
-starlette==1.3.1
-anyio==4.14.1
-uvicorn==0.49.0
-
-# Test tools. Postgres itself comes from Docker (postgres:16-alpine), not from pip.
-httpx==0.28.1
+# Everything needed to run the tests: the app's own dependencies plus the test tools.
+# Postgres itself comes from Docker (postgres:16-alpine), not from pip.
+-r requirements.txt
 pytest==9.1.1
 pytest-asyncio==1.4.0

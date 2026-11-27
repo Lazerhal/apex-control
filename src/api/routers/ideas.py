@@ -3,14 +3,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from src.db.session import get_db
 from src.db.models import Idea
-from src.api.schemas import IdeaCreate, IdeaResponse
+from src.api.schemas import IdeaCreate, IdeaResponse, SafeText
 from src.events import emit
 import uuid
 
 router = APIRouter(prefix="/api/ideas", tags=["ideas"])
 
 @router.get("", response_model=list[IdeaResponse])
-async def list_ideas(status: str | None = None, db: AsyncSession = Depends(get_db)):
+async def list_ideas(status: SafeText | None = None, db: AsyncSession = Depends(get_db)):
     query = select(Idea).where(Idea.deleted_at.is_(None))
     if status:
         query = query.where(Idea.status == status)
