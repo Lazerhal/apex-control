@@ -28,18 +28,27 @@ app = FastAPI(
     redoc_url=None,
 )
 
-def _json_safe(value):
+# Deeper input is cut off in 422 replies: writing it out would exceed the recursion limit
+MAX_REPLY_DEPTH = 32
+
+def _json_safe(value, depth=0):
+    if depth > MAX_REPLY_DEPTH:
+        return "..."
     if isinstance(value, float) and not math.isfinite(value):
         return str(value)
+    if isinstance(value, str):  # lone surrogates cannot be encoded
+        return value.encode("utf-8", "replace").decode("utf-8")
+    if isinstance(value, bytes):  # a body that was not sent as JSON
+        return value.decode("utf-8", "replace")
     if isinstance(value, dict):
-        return {k: _json_safe(v) for k, v in value.items()}
+        return {_json_safe(k, depth + 1): _json_safe(v, depth + 1) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_json_safe(v) for v in value]
+        return [_json_safe(v, depth + 1) for v in value]
     return value
 
 @app.exception_handler(RequestValidationError)
 async def validation_error(request: Request, exc: RequestValidationError):
-    # The 422 reply repeats the input, and NaN or Infinity cannot be written as JSON (a 500)
+    # The 422 reply repeats the input, and some input cannot be written as JSON (a 500)
     return await request_validation_exception_handler(
         request, RequestValidationError(_json_safe(exc.errors())))
 

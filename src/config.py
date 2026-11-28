@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     @field_validator("apex_internal_key")
     @classmethod
     def internal_key_is_long_enough(cls, value: str) -> str:
+        if not value.isascii():  # it is sent as an HTTP header
+            raise ValueError("APEX_INTERNAL_KEY must contain only ASCII characters")
         if value and len(value.strip()) < MIN_SECRET_LENGTH:
             raise ValueError(f"APEX_INTERNAL_KEY must be at least {MIN_SECRET_LENGTH} characters")
         return value

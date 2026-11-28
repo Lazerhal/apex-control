@@ -222,9 +222,40 @@ describe('event streams', () => {
   });
 });
 
-describe('known problems', () => {
-  test('a 204 reply from the API is passed through', { todo: 'the proxy gives 204 a body, which throws' }, async () => {
-    respond = (response) => response.writeHead(204).end();
-    assert.equal((await within(call('DELETE', 'api/thing'))).status, 204);
+describe('replies without a body', () => {
+  for (const status of [204, 205, 304]) {
+    test(`a ${status} reply from the API is passed through`, async () => {
+      respond = (response) => response.writeHead(status).end();
+      const result = await within(call('DELETE', 'api/thing'));
+      assert.equal(result.status, status);
+      assert.equal(result.body, null);
+      assert.equal(result.headers.get('content-type'), null);
+    });
+  }
+
+  test('a 204 reply keeps its set-cookie', async () => {
+    respond = (response) => response.writeHead(204, { 'set-cookie': 'apex_token=; Max-Age=0' }).end();
+    const result = await within(call('POST', 'auth/logout'));
+    assert.equal(result.headers.get('set-cookie'), 'apex_token=; Max-Age=0');
+  });
+});
+
+describe('login rate limit', () => {
+  test('forwards the address Cloudflare reports', async () => {
+    await call('POST', 'auth/login', { headers: { 'cf-connecting-ip': '203.0.113.9' } });
+    assert.equal(hits[0].headers['cf-connecting-ip'], '203.0.113.9');
+  });
+
+  test('sends no address when there is none, and no other client address headers', async () => {
+    await call('POST', 'auth/login', { headers: { 'x-forwarded-for': '203.0.113.9' } });
+    assert.equal(hits[0].headers['cf-connecting-ip'], undefined);
+    assert.equal(hits[0].headers['x-forwarded-for'], undefined);
+  });
+
+  test('passes a 429 and its retry-after back', async () => {
+    respond = (response) => json(response, 429, { detail: 'wait' }, { 'retry-after': '60' });
+    const result = await call('POST', 'auth/login');
+    assert.equal(result.status, 429);
+    assert.equal(result.headers.get('retry-after'), '60');
   });
 });

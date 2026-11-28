@@ -18,6 +18,10 @@ async function handler(request: NextRequest, { params }: { params: Promise<{ pat
   const cookie = request.headers.get('cookie');
   if (cookie) headers['Cookie'] = cookie;
 
+  // The API limits failed logins per client address, which it only learns from this header
+  const clientIp = request.headers.get('cf-connecting-ip');
+  if (clientIp) headers['CF-Connecting-IP'] = clientIp;
+
   const init: RequestInit = {
     method: request.method,
     headers,
@@ -58,7 +62,12 @@ async function handler(request: NextRequest, { params }: { params: Promise<{ pat
     throw err;
   }
 
-  const responseHeaders: Record<string, string> = isEventStream
+  // These statuses may not have a body, not even an empty one
+  const isBodiless = [204, 205, 304].includes(res.status);
+
+  const responseHeaders: Record<string, string> = isBodiless
+    ? {}
+    : isEventStream
     ? {
         'Content-Type': 'text/event-stream',
         // no-transform keeps Next.js compression from buffering the stream
@@ -67,10 +76,13 @@ async function handler(request: NextRequest, { params }: { params: Promise<{ pat
       }
     : { 'Content-Type': 'application/json' };
 
-  const response = new NextResponse(data, {
+  const response = new NextResponse(isBodiless ? null : data, {
     status: res.status,
     headers: responseHeaders,
   });
+
+  const retryAfter = res.headers.get('retry-after');
+  if (retryAfter) response.headers.set('retry-after', retryAfter);
 
   // Forward set-cookie header
   const setCookie = res.headers.get('set-cookie');

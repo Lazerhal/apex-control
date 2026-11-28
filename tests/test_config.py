@@ -55,3 +55,12 @@ def test_internal_key_may_be_absent_or_long(tmp_path, key):
 def test_short_internal_key_stops_startup(tmp_path):
     run = start(tmp_path, APEX_INTERNAL_KEY="k" * 31)
     assert run.returncode != 0 and "APEX_INTERNAL_KEY must be at least 32" in run.stderr
+
+
+@pytest.mark.parametrize("module", ["src.main", "src.telegram_bot.bot"])
+@pytest.mark.parametrize("key", ["\u00e9" * 32, "k" * 40 + "\u2019"])
+def test_non_ascii_internal_key_stops_startup(tmp_path, module, key):
+    run = start(tmp_path, module, APEX_INTERNAL_KEY=key)
+    assert run.returncode != 0
+    assert "APEX_INTERNAL_KEY must contain only ASCII characters" in run.stderr
+    assert key not in run.stdout + run.stderr

@@ -5,7 +5,7 @@
 #   PYTHON=/path/to/python scripts/test.sh
 #   TEST_DATABASE_URL=... scripts/test.sh   # use an empty *_test database instead
 #
-# Install first: python -m pip install -r requirements-dev.txt
+# Install first: python -m pip install -r requirements-dev.txt (includes requirements.txt)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

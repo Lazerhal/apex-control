@@ -2,11 +2,20 @@
 --
 -- Until the timezone fix, the API wrote datetime.utcnow() without a timezone, and it was stored
 -- as local time: later than the truth by the server's UTC offset (5 or 6 hours in Central).
+-- The offset that applied is the one for the value's own wall-clock time, so the corrected value
+-- is the stored one read back as Central wall-clock time and taken as UTC.
 --
 -- Each of these writes also set updated_at from the database clock, which was right, so:
 --   ok       the value matches updated_at
---   shifted  the value is later than updated_at by no more than the offset (impossible if right)
+--   shifted  the value is later than updated_at, and the corrected value is not
 --   review   cannot be told from the data (for example a task edited after it was completed)
+--
+-- When clocks spring forward, two different times were stored as the same value. Those rows are
+-- 'shifted' only if updated_at shows which one it was, and 'review' otherwise. A task can be
+-- edited after it was completed, so for a task updated_at can only show that it was the earlier
+-- one.
+-- A value exactly one hour after updated_at is also 'review': an earlier version of the
+-- correction script could leave that behind, and correcting it again would be wrong.
 --
 -- 'America/Chicago' is the apex server's timezone. Run with psql.
 
@@ -23,19 +32,33 @@ WITH written AS (
     UNION ALL
     SELECT 'doc_sync_states.last_db_write', id, last_db_write, updated_at
       FROM doc_sync_states WHERE last_db_write IS NOT NULL
-), judged AS (
+), converted AS (
     SELECT *,
            value - reference AS difference,
-           (reference AT TIME ZONE 'UTC') - (reference AT TIME ZONE 'America/Chicago') AS utc_offset
+           (value AT TIME ZONE 'America/Chicago') AT TIME ZONE 'UTC' AS corrected
       FROM written
+), candidates AS (
+    -- earlier: the other possible answer, in the hour that clocks skip in spring
+    SELECT *,
+           CASE WHEN ((corrected - interval '1 hour') AT TIME ZONE 'UTC')
+                     AT TIME ZONE 'America/Chicago' = value
+                THEN corrected - interval '1 hour' END AS earlier
+      FROM converted
+), judged AS (
+    SELECT *,
+           CASE WHEN abs(extract(epoch FROM difference)) <= 60 THEN 'ok'
+                WHEN difference <= interval '60 seconds'
+                  OR abs(extract(epoch FROM difference) - 3600) <= 60 THEN 'review'
+                WHEN earlier IS NULL AND corrected - reference <= interval '60 seconds'
+                     THEN 'shifted'
+                WHEN abs(extract(epoch FROM earlier - reference)) <= 60 THEN 'shifted'
+                WHEN abs(extract(epoch FROM corrected - reference)) <= 60
+                 AND column_name <> 'tasks.completed_at' THEN 'shifted'
+                ELSE 'review' END AS verdict
+      FROM candidates
 )
 SELECT column_name, verdict, count(*) AS row_count
-  FROM (SELECT column_name,
-               CASE WHEN abs(extract(epoch FROM difference)) <= 60 THEN 'ok'
-                    WHEN difference > interval '60 seconds'
-                     AND difference <= utc_offset + interval '60 seconds' THEN 'shifted'
-                    ELSE 'review' END AS verdict
-          FROM judged) AS verdicts
+  FROM judged
  GROUP BY column_name, verdict
  ORDER BY column_name, verdict;
 
@@ -48,18 +71,34 @@ WITH written AS (
     UNION ALL
     SELECT 'doc_sync_states.last_db_write', id, last_db_write, updated_at
       FROM doc_sync_states WHERE last_db_write IS NOT NULL
-), judged AS (
+), converted AS (
     SELECT *,
            value - reference AS difference,
-           (reference AT TIME ZONE 'UTC') - (reference AT TIME ZONE 'America/Chicago') AS utc_offset
+           (value AT TIME ZONE 'America/Chicago') AT TIME ZONE 'UTC' AS corrected
       FROM written
+), candidates AS (
+    -- earlier: the other possible answer, in the hour that clocks skip in spring
+    SELECT *,
+           CASE WHEN ((corrected - interval '1 hour') AT TIME ZONE 'UTC')
+                     AT TIME ZONE 'America/Chicago' = value
+                THEN corrected - interval '1 hour' END AS earlier
+      FROM converted
+), judged AS (
+    SELECT *,
+           CASE WHEN abs(extract(epoch FROM difference)) <= 60 THEN 'ok'
+                WHEN difference <= interval '60 seconds'
+                  OR abs(extract(epoch FROM difference) - 3600) <= 60 THEN 'review'
+                WHEN earlier IS NULL AND corrected - reference <= interval '60 seconds'
+                     THEN 'shifted'
+                WHEN abs(extract(epoch FROM earlier - reference)) <= 60 THEN 'shifted'
+                WHEN abs(extract(epoch FROM corrected - reference)) <= 60
+                 AND column_name <> 'tasks.completed_at' THEN 'shifted'
+                ELSE 'review' END AS verdict
+      FROM candidates
 )
-SELECT column_name, id, value, reference AS updated_at, difference,
-       CASE WHEN difference > interval '60 seconds'
-             AND difference <= utc_offset + interval '60 seconds' THEN 'shifted'
-            ELSE 'review' END AS verdict
+SELECT column_name, id, value, reference AS updated_at, difference, verdict
   FROM judged
- WHERE abs(extract(epoch FROM difference)) > 60
+ WHERE verdict <> 'ok'
  ORDER BY column_name, value;
 
 -- 2. Left over from other bugs fixed at the same time (the correction script does not touch these)

@@ -6,6 +6,7 @@ empty database that already exists (CI uses a service container).
 import asyncio
 import contextlib
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -42,6 +43,7 @@ except UnsafeDatabaseError as e:
 
 EXTERNAL_URL = os.environ.get("TEST_DATABASE_URL")
 CONTAINER_PORT = None if EXTERNAL_URL else _free_port()
+CONTAINER = None if EXTERNAL_URL else f"apex-test-pg-{uuid.uuid4().hex[:8]}"
 DATABASE_URL = check_database_url(
     EXTERNAL_URL or f"postgresql://postgres:test@127.0.0.1:{CONTAINER_PORT}/apex_test"
 ).replace("postgresql+asyncpg://", "postgresql://", 1)  # psycopg2 and asyncpg need this form
@@ -88,6 +90,19 @@ def _connect_when_ready(timeout: float = 60):
             time.sleep(0.5)
 
 
+def psql(script: Path, **variables: str) -> subprocess.CompletedProcess:
+    """Runs a SQL script with psql: the local one, or the one in the test container."""
+    options = [item for name, value in variables.items() for item in ("-v", f"{name}={value}")]
+    if shutil.which("psql"):
+        command = ["psql", "-X", DATABASE_URL, *options]
+    else:
+        assert CONTAINER, "psql is needed when TEST_DATABASE_URL is set"
+        command = ["docker", "exec", "-i", CONTAINER,
+                   "psql", "-X", "-U", "postgres", "-d", "apex_test", *options]
+    return subprocess.run(command, input=script.read_text(), capture_output=True, text=True,
+                          timeout=60)
+
+
 def alembic(*args: str, url: str = DATABASE_URL) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, "-m", "alembic", *args], cwd=ROOT, capture_output=True, text=True,
@@ -97,11 +112,9 @@ def alembic(*args: str, url: str = DATABASE_URL) -> subprocess.CompletedProcess:
 
 @pytest.fixture(scope="session", autouse=True)
 def database():
-    container = None
-    if not EXTERNAL_URL:
-        container = f"apex-test-pg-{uuid.uuid4().hex[:8]}"
+    if CONTAINER:
         subprocess.run(
-            ["docker", "run", "-d", "--rm", "--name", container,
+            ["docker", "run", "-d", "--rm", "--name", CONTAINER,
              "-e", "POSTGRES_PASSWORD=test", "-e", "POSTGRES_DB=apex_test",
              "-p", f"127.0.0.1:{CONTAINER_PORT}:5432", "postgres:16-alpine"],
             check=True, capture_output=True, text=True,
@@ -119,8 +132,8 @@ def database():
         assert result.returncode == 0, result.stderr
         yield DATABASE_URL
     finally:
-        if container:
-            subprocess.run(["docker", "rm", "-f", container], capture_output=True)
+        if CONTAINER:
+            subprocess.run(["docker", "rm", "-f", CONTAINER], capture_output=True)
 
 
 @pytest.fixture
@@ -146,6 +159,11 @@ async def dispose_engine(database):
 
 
 # ── API clients ───────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def forget_failed_logins():
+    from src.rate_limit import login_limiter
+    login_limiter.reset()
 
 @pytest.fixture
 def app():

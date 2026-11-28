@@ -33,3 +33,17 @@ async def test_deleted_projects_leave_project_counts_and_money(client):
     await client.delete(f"/api/projects/{gone['id']}")
     body = (await client.get("/api/dashboard/summary")).json()
     assert body["projects"]["total"] == 0 and body["financials"]["monthly_cost_usd"] == 0
+
+
+async def test_deleted_projects_leave_task_and_recommendation_counts(client, project, db):
+    gone = (await client.post("/api/projects", json={"name": "g", "type": "saas"})).json()
+    for owner in (project, gone):
+        await client.post(f"/api/projects/{owner['id']}/tasks",
+                          json={"title": "t", "priority": "critical"})
+        await db.execute("""
+            insert into recommendations (id, project_id, type, severity, title, rationale, status)
+            values (gen_random_uuid(), $1::text::uuid, 'x', 'low', 't', 'r', 'new')""", owner["id"])
+    await client.delete(f"/api/projects/{gone['id']}")
+    body = (await client.get("/api/dashboard/summary")).json()
+    assert body["tasks"] == {"open": 1, "critical": 1}
+    assert body["recommendations"] == {"new": 1}

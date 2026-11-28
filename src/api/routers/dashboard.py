@@ -11,10 +11,14 @@ async def get_summary(db: AsyncSession = Depends(get_db)):
     proj_result = await db.execute(select(Project.stage, func.count(Project.id)).where(Project.deleted_at.is_(None)).group_by(Project.stage))
     projects_by_stage = {row[0]: row[1] for row in proj_result}
     total_proj = await db.execute(select(func.count(Project.id)).where(Project.deleted_at.is_(None)))
-    open_tasks = await db.execute(select(func.count(Task.id)).where(Task.status == "open"))
-    critical_tasks = await db.execute(select(func.count(Task.id)).where(Task.status == "open", Task.priority == "critical"))
+    live_tasks = select(func.count(Task.id)).join(Project, Task.project_id == Project.id).where(
+        Project.deleted_at.is_(None), Task.status == "open")
+    open_tasks = await db.execute(live_tasks)
+    critical_tasks = await db.execute(live_tasks.where(Task.priority == "critical"))
     new_ideas = await db.execute(select(func.count(Idea.id)).where(Idea.status == "new", Idea.deleted_at.is_(None)))
-    new_recs = await db.execute(select(func.count(Recommendation.id)).where(Recommendation.status == "new"))
+    new_recs = await db.execute(
+        select(func.count(Recommendation.id)).join(Project, Recommendation.project_id == Project.id)
+        .where(Project.deleted_at.is_(None), Recommendation.status == "new"))
     total_cost = await db.execute(select(func.sum(Project.monthly_cost_usd)).where(Project.deleted_at.is_(None)))
     total_revenue = await db.execute(select(func.sum(Project.monthly_revenue_usd)).where(Project.deleted_at.is_(None)))
     cost = float(total_cost.scalar() or 0)
